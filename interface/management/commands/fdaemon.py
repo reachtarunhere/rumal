@@ -164,8 +164,8 @@ class Command(BaseCommand):
         return frontend_analysis_id
 
     def get_backend_status(self,pending_id_list):
-    	if not pending_id_list:
-    	    return []
+        if not pending_id_list:
+            return []
         semicolon_seperated = ";".join(pending_id_list)
         status_headers = {'Authorization': 'ApiKey {}:{}'.format(API_USER,API_KEY)}
         status_url = BACKEND_HOST + "/api/v1/status/set/{}/?format=json".format(semicolon_seperated)
@@ -175,7 +175,8 @@ class Command(BaseCommand):
             logger.debug("Got a requests.exceptions.ConnectionError exception, will try again later.")
         response = r.json()
         finished_on_backend = [x for x in response["objects"] if x["status"] == 3]
-        return finished_on_backend
+        failed_on_backend = [x for x in response["objects"] if x["status"] == 2]
+        return finished_on_backend, failed_on_backend
 
     def handle(self, *args, **options):
         logger.debug("Starting up frontend daemon")
@@ -189,7 +190,12 @@ class Command(BaseCommand):
             logger.debug("Fetching pending tasks posted to backend.")
             tasks = self.fetch_pending_tasks()
             pending_id_list = [str(x.id) for x in tasks]
-            finished_on_backend = self.get_backend_status(pending_id_list)
+            finished_on_backend, failed_on_backend = self.get_backend_status(pending_id_list)
+
+            for x in failed_on_backend:
+                task = Task.objects.get(id=x["frontend_id"])
+                self.mark_as_failed(task)
+
             for x in finished_on_backend:
                 frontend_analysis_id = self.retrive_save_document(x["object_id"])
                 task = Task.objects.get(id=x["frontend_id"])
@@ -198,4 +204,3 @@ class Command(BaseCommand):
                 self.mark_as_completed(task)
             logger.debug("Sleeping for {} seconds".format(60))
             time.sleep(6)
-
